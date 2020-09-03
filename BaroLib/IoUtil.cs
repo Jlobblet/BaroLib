@@ -34,11 +34,13 @@ namespace BaroLib
 
         public static XDocument LoadSub(string filepath)
         {
-            using var originalFileStream =
-                new FileStream(filepath, FileMode.Open);
-            using var decompressionStream =
-                new GZipStream(originalFileStream, CompressionMode.Decompress);
-            return XDocument.Load(decompressionStream);
+            using (var originalFileStream =
+                new FileStream(filepath, FileMode.Open))
+            using (var decompressionStream =
+                new GZipStream(originalFileStream, CompressionMode.Decompress))
+            {
+                return XDocument.Load(decompressionStream);
+            }
         }
 
         public static void SaveSub(this XDocument sub, string filepath)
@@ -53,9 +55,11 @@ namespace BaroLib
                 f.Read(b, 0, (int)f.Length);
             }
 
-            using var f2 = new FileStream(filepath, FileMode.OpenOrCreate);
-            using var gz = new GZipStream(f2, CompressionMode.Compress, false);
-            gz.Write(b, 0, b.Length);
+            using (var f2 = new FileStream(filepath, FileMode.OpenOrCreate))
+            using (var gz = new GZipStream(f2, CompressionMode.Compress, false))
+            {
+                gz.Write(b, 0, b.Length);
+            }
         }
 
         public static void CompressFile(string sDir,
@@ -80,17 +84,19 @@ namespace BaroLib
         {
             IEnumerable<string> sFiles =
                 Directory.GetFiles(sInDir, "*.*", SearchOption.AllDirectories);
-            int iDirLen = sInDir[^1] == Path.DirectorySeparatorChar
+            int iDirLen = sInDir[sInDir.Length - 1] == Path.DirectorySeparatorChar
                               ? sInDir.Length
                               : sInDir.Length + 1;
 
-            using FileStream outFile =
-                File.Open(sOutFile, FileMode.Create, FileAccess.Write);
-            using var str = new GZipStream(outFile, CompressionMode.Compress);
-            foreach (string sFilePath in sFiles)
+            using (FileStream outFile =
+                File.Open(sOutFile, FileMode.Create, FileAccess.Write))
+            using (var str = new GZipStream(outFile, CompressionMode.Compress))
             {
-                string sRelativePath = sFilePath.Substring(iDirLen);
-                CompressFile(sInDir, sRelativePath, str);
+                foreach (string sFilePath in sFiles)
+                {
+                    string sRelativePath = sFilePath.Substring(iDirLen);
+                    CompressFile(sInDir, sRelativePath, str);
+                }
             }
         }
 
@@ -134,7 +140,7 @@ namespace BaroLib
             string sFinalDir = Path.GetDirectoryName(sFilePath);
             if (!Directory.Exists(sFinalDir))
             {
-                Directory.CreateDirectory(sFinalDir);
+                Directory.CreateDirectory(sFinalDir ?? throw new ArgumentNullException(nameof(sDir)));
             }
 
             const int maxRetries = 4;
@@ -142,9 +148,12 @@ namespace BaroLib
             {
                 try
                 {
-                    using FileStream outFile =
-                        File.Open(sFilePath, FileMode.Create, FileAccess.Write);
-                    outFile.Write(bytes, 0, iFileLen);
+                    using (FileStream outFile =
+                        File.Open(sFilePath, FileMode.Create, FileAccess.Write))
+                    {
+                        outFile.Write(bytes, 0, iFileLen);
+                    }
+
                     break;
                 }
                 catch (IOException e)
@@ -171,12 +180,14 @@ namespace BaroLib
             {
                 try
                 {
-                    using FileStream inFile =
-                        File.Open(sCompressedFile, FileMode.Open, FileAccess.Read);
-                    using var zipStream =
-                        new GZipStream(inFile, CompressionMode.Decompress, true);
-                    while (DecompressFile(sDir, zipStream))
+                    using (FileStream inFile =
+                        File.Open(sCompressedFile, FileMode.Open, FileAccess.Read))
+                    using (var zipStream =
+                        new GZipStream(inFile, CompressionMode.Decompress, true))
                     {
+                        while (DecompressFile(sDir, zipStream))
+                        {
+                        }
                     }
 
                     break;

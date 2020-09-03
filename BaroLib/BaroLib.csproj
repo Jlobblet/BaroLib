@@ -1,25 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>netcoreapp3.1</TargetFramework>
         <Authors>Jlobblet</Authors>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <RepositoryUrl>{insert repository url here}</RepositoryUrl>
         <Version>1.0.0</Version>
-        <PackageVersion>1.0.0</PackageVersion>
+        <PackageVersion>1.0.1</PackageVersion>
+        <TargetFrameworks>net472;netstandard2.1;netcoreapp3.1</TargetFrameworks>
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
-      <OutputPath>bin\BaroLib\</OutputPath>
+      <OutputPath>bin\Release\</OutputPath>
     </PropertyGroup>
 
     <ItemGroup>
-      <Reference Include="System.Drawing.Common, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51">
+      <Reference Include="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" Condition="'$(TargetFramework)' == 'net472'">
+        <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.dll</HintPath>
+      </Reference>
+      <Reference Include="System.Drawing.Common, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51" Condition="'$(TargetFramework)' == 'net472'">
         <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.Common.dll</HintPath>
       </Reference>
-      <Reference Include="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
-        <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Windows.Forms.dll</HintPath>
-      </Reference>
+      <Reference Include="System.Windows.Forms" Condition="'$(TargetFramework)' == 'net472'" />
     </ItemGroup>
 
     <ItemGroup>
@@ -28,11 +29,11 @@
     </ItemGroup>
 
     <Target Name="PostGenerateNuspec" AfterTargets="GenerateNuspec">
-        <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; xcopy &quot;$(TargetDir)..\$(TargetName)*.nupkg&quot; &quot;$(RepositoryUrl)\$(TargetName)&quot;" />
+        <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; dotnet nuget push &quot;$(TargetDir)..\$(TargetName)*.nupkg&quot; --source &quot;LocalFeed&quot;" />
     </Target>
     
     <Target Name="PreGenerateNuspec" BeforeTargets="GenerateNuspec">
-      <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; if exist &quot;$(RepositoryUrl)\$(TargetName)\$(TargetName)*.nupkg&quot; del &quot;$(RepositoryUrl)\$(TargetName)\$(TargetName)*.nupkg&quot;" />
+      <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; if exist &quot;$(RepositoryUrl)\$(TargetName)*.nupkg&quot; del &quot;$(RepositoryUrl)\$(TargetName)\$(TargetName)*.nupkg&quot;" />
     </Target>
 
     <Target Name="PreBuild" BeforeTargets="PreBuildEvent">

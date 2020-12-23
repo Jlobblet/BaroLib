@@ -10,34 +10,29 @@
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
-      <OutputPath>bin\Release\</OutputPath>
+        <OutputPath>bin\Release\</OutputPath>
     </PropertyGroup>
 
     <ItemGroup>
-      <Reference Include="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" Condition="'$(TargetFramework)' == 'net472'">
-        <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.dll</HintPath>
-      </Reference>
-      <Reference Include="System.Drawing.Common, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51" Condition="'$(TargetFramework)' == 'net472'">
-        <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.Common.dll</HintPath>
-      </Reference>
-      <Reference Include="System.Windows.Forms" Condition="'$(TargetFramework)' == 'net472'" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <PackageReference Include="Microsoft.WindowsAPICodePack-Core" Version="1.1.0.2" />
-      <PackageReference Include="Microsoft.WindowsAPICodePack-Shell" Version="1.1.0" />
+        <Reference Include="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" Condition="'$(TargetFramework)' == 'net472'">
+            <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Drawing.Common, Version=4.0.2.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51" Condition="'$(TargetFramework)' == 'net472'">
+            <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\3.1.0\ref\netcoreapp3.1\System.Drawing.Common.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Windows.Forms" Condition="'$(TargetFramework)' == 'net472'" />
     </ItemGroup>
 
     <Target Name="PostGenerateNuspec" AfterTargets="GenerateNuspec">
         <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; dotnet nuget push &quot;$(TargetDir)..\$(TargetName)*.nupkg&quot; --source &quot;LocalFeed&quot;" />
     </Target>
-    
+
     <Target Name="PreGenerateNuspec" BeforeTargets="GenerateNuspec">
-      <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; if exist &quot;$(RepositoryUrl)\$(TargetName)*.nupkg&quot; del &quot;$(RepositoryUrl)\$(TargetName)\$(TargetName)*.nupkg&quot;" />
+        <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; if exist &quot;$(RepositoryUrl)\$(TargetName)*.nupkg&quot; del &quot;$(RepositoryUrl)\$(TargetName)\$(TargetName)*.nupkg&quot;" />
     </Target>
 
     <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-      <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; del &quot;$(TargetDir)..\$(TargetName)*.nupkg&quot;" />
+        <Exec Command="if /i &quot;$(ConfigurationName)&quot;==&quot;Release&quot; del &quot;$(TargetDir)..\$(TargetName)*.nupkg&quot;" />
     </Target>
 
 </Project>

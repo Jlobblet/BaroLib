@@ -34,13 +34,11 @@ namespace BaroLib
 
         public static XDocument LoadSub(string filepath)
         {
-            using (var originalFileStream =
-                new FileStream(filepath, FileMode.Open))
-            using (var decompressionStream =
-                new GZipStream(originalFileStream, CompressionMode.Decompress))
-            {
-                return XDocument.Load(decompressionStream);
-            }
+            using var originalFileStream =
+                new FileStream(filepath, FileMode.Open);
+            using var decompressionStream =
+                new GZipStream(originalFileStream, CompressionMode.Decompress);
+            return XDocument.Load(decompressionStream);
         }
 
         public static void SaveSub(this XDocument sub, string filepath)
@@ -62,9 +60,7 @@ namespace BaroLib
             }
         }
 
-        public static void CompressFile(string sDir,
-                                        string sRelativePath,
-                                        GZipStream zipStream)
+        public static void CompressFile(string sDir, string sRelativePath, GZipStream zipStream)
         {
             //Compress file name
             char[] chars = sRelativePath.ToCharArray();
@@ -82,35 +78,41 @@ namespace BaroLib
 
         public static void CompressDirectory(string sInDir, string sOutFile)
         {
-            IEnumerable<string> sFiles =
-                Directory.GetFiles(sInDir, "*.*", SearchOption.AllDirectories);
-            int iDirLen = sInDir[sInDir.Length - 1] == Path.DirectorySeparatorChar
-                              ? sInDir.Length
-                              : sInDir.Length + 1;
+            IEnumerable<string> sFiles = Directory.GetFiles(sInDir, "*.*", SearchOption.AllDirectories);
+            int iDirLen = sInDir[sInDir.Length - 1] == Path.DirectorySeparatorChar ? sInDir.Length : sInDir.Length + 1;
 
-            using (FileStream outFile =
-                File.Open(sOutFile, FileMode.Create, FileAccess.Write))
-            using (var str = new GZipStream(outFile, CompressionMode.Compress))
+            using FileStream outFile = File.Open(sOutFile, FileMode.Create, FileAccess.Write);
+            using var        str     = new GZipStream(outFile, CompressionMode.Compress);
+            foreach (string sFilePath in sFiles)
             {
-                foreach (string sFilePath in sFiles)
-                {
-                    string sRelativePath = sFilePath.Substring(iDirLen);
-                    CompressFile(sInDir, sRelativePath, str);
-                }
+                string sRelativePath = sFilePath.Substring(iDirLen);
+                CompressFile(sInDir, sRelativePath, str);
             }
         }
 
-        public static bool DecompressFile(string sDir, GZipStream zipStream)
+        public static Stream DecompressFiletoStream(string fileName)
         {
+            using FileStream originalFileStream     = File.Open(fileName, FileMode.Open);
+            var              decompressedFileStream = new MemoryStream();
+
+            using var decompressionStream = new GZipStream(originalFileStream, CompressionMode.Decompress);
+            decompressionStream.CopyTo(decompressedFileStream);
+            return decompressedFileStream;
+        }
+
+        private static bool DecompressFile(bool writeFile, string sDir, GZipStream zipStream, out string fileName)
+        {
+            fileName = null;
+
             //Decompress file name
-            var bytes = new byte[sizeof(int)];
-            int read = zipStream.Read(bytes, 0, sizeof(int));
-            if (read < sizeof(int))
+            var bytes  = new byte[sizeof(int)];
+            int readed = zipStream.Read(bytes, 0, sizeof(int));
+            if (readed < sizeof(int))
             {
                 return false;
             }
 
-            int iNameLen = BitConverter.ToInt32(bytes, 0);
+            var iNameLen = BitConverter.ToInt32(bytes, 0);
             if (iNameLen > 255)
             {
                 throw new
@@ -119,52 +121,68 @@ namespace BaroLib
 
             bytes = new byte[sizeof(char)];
             var sb = new StringBuilder();
-            for (int i = 0; i < iNameLen; i++)
+            for (var i = 0; i < iNameLen; i++)
             {
                 zipStream.Read(bytes, 0, sizeof(char));
-                char c = BitConverter.ToChar(bytes, 0);
+                var c = BitConverter.ToChar(bytes, 0);
                 sb.Append(c);
             }
 
-            string sFileName = sb.ToString();
+            var sFileName = sb.ToString();
+
+            fileName = sFileName;
 
             //Decompress file content
             bytes = new byte[sizeof(int)];
             zipStream.Read(bytes, 0, sizeof(int));
-            int iFileLen = BitConverter.ToInt32(bytes, 0);
+            var iFileLen = BitConverter.ToInt32(bytes, 0);
 
             bytes = new byte[iFileLen];
             zipStream.Read(bytes, 0, bytes.Length);
 
             string sFilePath = Path.Combine(sDir, sFileName);
             string sFinalDir = Path.GetDirectoryName(sFilePath);
-            if (!Directory.Exists(sFinalDir))
+
+            string sDirFull =
+                (string.IsNullOrEmpty(sDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(sDir))
+                .CleanUpPathCrossPlatform(false);
+            string sFinalDirFull =
+                (string.IsNullOrEmpty(sFinalDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(sFinalDir))
+                .CleanUpPathCrossPlatform(false);
+
+            if (!sFinalDirFull.StartsWith(sDirFull, StringComparison.OrdinalIgnoreCase))
             {
-                Directory.CreateDirectory(sFinalDir ?? throw new ArgumentNullException(nameof(sDir)));
+                throw new
+                    InvalidOperationException($"Error extracting \"{sFileName}\": cannot be extracted to parent directory");
             }
 
-            const int maxRetries = 4;
-            for (int i = 0; i <= maxRetries; i++)
+            if (!writeFile)
+            {
+                return true;
+            }
+
+            if (!Directory.Exists(sFinalDir))
+            {
+                Directory.CreateDirectory(sFinalDir);
+            }
+
+            var maxRetries = 4;
+            for (var i = 0; i <= maxRetries; i++)
             {
                 try
                 {
-                    using (FileStream outFile =
-                        File.Open(sFilePath, FileMode.Create, FileAccess.Write))
-                    {
-                        outFile.Write(bytes, 0, iFileLen);
-                    }
+                    using FileStream outFile = File.Open(sFilePath, FileMode.Create, FileAccess.Write);
+                    outFile.Write(bytes, 0, iFileLen);
 
                     break;
                 }
-                catch (IOException e)
+                catch (IOException)
                 {
                     if (i >= maxRetries || !File.Exists(sFilePath))
                     {
                         throw;
                     }
 
-                    Console
-                        .WriteLine($"Failed decompress file \"{sFilePath}\" {{{e.Message}}}, retrying in 250 ms...");
                     Thread.Sleep(250);
                 }
             }
@@ -174,36 +192,61 @@ namespace BaroLib
 
         public static void DecompressToDirectory(string sCompressedFile, string sDir)
         {
-            Console.WriteLine($"Decompressing {sCompressedFile} to {sDir}...");
-            const int maxRetries = 4;
-            for (int i = 0; i <= maxRetries; i++)
+            var maxRetries = 4;
+            for (var i = 0; i <= maxRetries; i++)
             {
                 try
                 {
-                    using (FileStream inFile =
-                        File.Open(sCompressedFile, FileMode.Open, FileAccess.Read))
-                    using (var zipStream =
-                        new GZipStream(inFile, CompressionMode.Decompress, true))
+                    using FileStream inFile    = File.Open(sCompressedFile, FileMode.Open, FileAccess.Read);
+                    using var        zipStream = new GZipStream(inFile, CompressionMode.Decompress, true);
+                    while (DecompressFile(true, sDir, zipStream, out _))
                     {
-                        while (DecompressFile(sDir, zipStream))
-                        {
-                        }
                     }
+
+                    ;
 
                     break;
                 }
-                catch (IOException e)
+                catch (IOException)
                 {
                     if (i >= maxRetries || !File.Exists(sCompressedFile))
                     {
                         throw;
                     }
 
-                    Console
-                        .WriteLine($"Failed decompress file \"{sCompressedFile}\" {{{e.Message}}}, retrying in 250 ms...");
                     Thread.Sleep(250);
                 }
             }
+        }
+
+        public static IEnumerable<string> EnumerateContainedFiles(string sCompressedFile)
+        {
+            var maxRetries = 4;
+            var paths      = new HashSet<string>();
+            for (var i = 0; i <= maxRetries; i++)
+            {
+                try
+                {
+                    using FileStream inFile =
+                        File.Open(sCompressedFile, FileMode.Open, FileAccess.Read);
+                    using var zipStream = new GZipStream(inFile, CompressionMode.Decompress, true);
+                    while (DecompressFile(false, "", zipStream, out string fileName))
+                    {
+                        paths.Add(fileName);
+                    }
+                }
+                catch (IOException)
+                {
+                    if (i >= maxRetries || !File.Exists(sCompressedFile))
+                    {
+                        throw;
+                    }
+
+                    Thread.Sleep(250);
+                }
+            }
+
+            return paths;
         }
     }
 }

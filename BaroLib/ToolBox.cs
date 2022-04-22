@@ -19,7 +19,8 @@ namespace BaroLib
         /// <param name="correctFilenameCase">Should the case be corrected to match the filesystem?</param>
         /// <param name="directory">Directories that the path should be found in, not returned.</param>
         /// <returns>Path with corrected slashes, and corrected case if requested.</returns>
-        public static string CleanUpPathCrossPlatform(this string path, bool correctFilenameCase = true, string directory = "")
+        public static string CleanUpPathCrossPlatform(this string path, bool correctFilenameCase = true,
+                                                      string      directory = "")
         {
             if (string.IsNullOrEmpty(path))
             {
@@ -30,21 +31,23 @@ namespace BaroLib
                 .Replace('\\', '/');
             if (path.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
             {
-                path = path.Substring("file:".Length);
+                path = path["file:".Length..];
             }
 
-            while (path.IndexOf("//") >= 0)
+            while (path.IndexOf("//", StringComparison.Ordinal) >= 0)
             {
                 path = path.Replace("//", "/");
             }
 
-            if (correctFilenameCase)
+            if (!correctFilenameCase)
             {
-                string correctedPath = CorrectFilenameCase(path, out _, directory);
-                if (!string.IsNullOrEmpty(correctedPath))
-                {
-                    path = correctedPath;
-                }
+                return path;
+            }
+
+            string correctedPath = CorrectFilenameCase(path, out _, directory);
+            if (!string.IsNullOrEmpty(correctedPath))
+            {
+                path = correctedPath;
             }
 
             return path;

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -14,46 +15,70 @@ namespace BaroLib
 {
     public static class IoUtil
     {
+        public enum SaveType
+        {
+            Singleplayer,
+            Multiplayer,
+        }
+
         public static string MultiplayerSaveFolder =
             Path.Combine(SaveFolder, "Multiplayer");
 
+        public static readonly string SubmarineDownloadFolder = Path.Combine("Submarines", "Downloaded");
+        public static readonly string CampaignDownloadFolder = Path.Combine("Data", "Saves", "Multiplayer_Downloaded");
+
+        private static readonly string OsxSaveFolder =
+            Path.Combine(
+                         Environment.GetFolderPath(Environment.SpecialFolder.Personal),
+                         "Library",
+                         "Application Support",
+                         "Daedalic Entertainment GmbH",
+                         "Barotrauma");
+
+        private static readonly string LinuxWindowsSaveFolder =
+            Path.Combine(
+                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                         "Daedalic Entertainment GmbH",
+                         "Barotrauma");
+
         public static string SaveFolder
             => RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-                   ? Path.Combine(
-                                  Environment.GetFolderPath(Environment.SpecialFolder
-                                                                       .Personal),
-                                  "Library",
-                                  "Application Support",
-                                  "Daedalic Entertainment GmbH",
-                                  "Barotrauma")
-                   : Path.Combine(
-                                  Environment.GetFolderPath(Environment.SpecialFolder
-                                                                       .LocalApplicationData),
-                                  "Daedalic Entertainment GmbH",
-                                  "Barotrauma");
+                   ? OsxSaveFolder
+                   : LinuxWindowsSaveFolder;
 
-        public static XDocument LoadSub(string filepath)
+        public static string TempPath
         {
-            using var originalFileStream =
-                new FileStream(filepath, FileMode.Open);
-            using var decompressionStream =
-                new GZipStream(originalFileStream, CompressionMode.Decompress);
-            return XDocument.Load(decompressionStream);
+#if SERVER
+            get { return Path.Combine(SaveFolder, "temp_server"); }
+#else
+            get { return Path.Combine(SaveFolder, "temp"); }
+#endif
         }
 
-        public static void SaveSub(this XDocument sub, string filepath)
+        public static XDocument LoadGameSessionDoc(string filePath)
         {
-            string temp = Path.GetTempFileName();
-            File.WriteAllText(temp, sub.ToString());
-            byte[] b;
+            DecompressToDirectory(filePath, TempPath);
 
-            using (var f = new FileStream(temp, FileMode.Open))
-            {
-                b = new byte[f.Length];
-                f.Read(b, 0, (int)f.Length);
-            }
+            return XDocument.Load(Path.Combine(TempPath, "gamesession.xml"));
+        }
 
-            using (var f2 = new FileStream(filepath, FileMode.OpenOrCreate))
+        public static bool IsSaveFileCompatible(XDocument saveDoc) => saveDoc?.Root?.Attribute("version") != null;
+
+        public static string GetSavePath(SaveType saveType, string saveName)
+        {
+            string folder = saveType == SaveType.Singleplayer ? SaveFolder : MultiplayerSaveFolder;
+            return Path.Combine(folder, saveName);
+        }
+
+        public static void CompressStringToFile(string fileName, string value)
+        {
+            // A.
+            // Convert the string to its byte representation.
+            byte[] b = Encoding.UTF8.GetBytes(value);
+
+            // B.
+            // Use GZipStream to write compressed bytes to target file.
+            using (FileStream f2 = File.Open(fileName, FileMode.Create))
             using (var gz = new GZipStream(f2, CompressionMode.Compress, false))
             {
                 gz.Write(b, 0, b.Length);
@@ -78,19 +103,20 @@ namespace BaroLib
 
         public static void CompressDirectory(string sInDir, string sOutFile)
         {
-            IEnumerable<string> sFiles = Directory.GetFiles(sInDir, "*.*", SearchOption.AllDirectories);
-            int iDirLen = sInDir[sInDir.Length - 1] == Path.DirectorySeparatorChar ? sInDir.Length : sInDir.Length + 1;
+            IEnumerable<string> sFiles  = Directory.GetFiles(sInDir, "*.*", SearchOption.AllDirectories);
+            int                 iDirLen = sInDir[^1] == Path.DirectorySeparatorChar ? sInDir.Length : sInDir.Length + 1;
 
             using FileStream outFile = File.Open(sOutFile, FileMode.Create, FileAccess.Write);
             using var        str     = new GZipStream(outFile, CompressionMode.Compress);
             foreach (string sFilePath in sFiles)
             {
-                string sRelativePath = sFilePath.Substring(iDirLen);
+                string sRelativePath = sFilePath[iDirLen..];
                 CompressFile(sInDir, sRelativePath, str);
             }
         }
 
-        public static Stream DecompressFiletoStream(string fileName)
+
+        public static Stream DecompressFileToStream(string fileName)
         {
             using FileStream originalFileStream     = File.Open(fileName, FileMode.Open);
             var              decompressedFileStream = new MemoryStream();
@@ -105,9 +131,9 @@ namespace BaroLib
             fileName = null;
 
             //Decompress file name
-            var bytes  = new byte[sizeof(int)];
-            int readed = zipStream.Read(bytes, 0, sizeof(int));
-            if (readed < sizeof(int))
+            var bytes     = new byte[sizeof(int)];
+            int bytesRead = Read(zipStream, bytes, sizeof(int));
+            if (bytesRead < sizeof(int))
             {
                 return false;
             }
@@ -123,28 +149,27 @@ namespace BaroLib
             var sb = new StringBuilder();
             for (var i = 0; i < iNameLen; i++)
             {
-                zipStream.Read(bytes, 0, sizeof(char));
+                Read(zipStream, bytes, sizeof(char));
                 var c = BitConverter.ToChar(bytes, 0);
                 sb.Append(c);
             }
 
-            var sFileName = sb.ToString();
+            string sFileName = sb.ToString().Replace('\\', '/');
 
             fileName = sFileName;
 
             //Decompress file content
             bytes = new byte[sizeof(int)];
-            zipStream.Read(bytes, 0, sizeof(int));
+            Read(zipStream, bytes, sizeof(int));
             var iFileLen = BitConverter.ToInt32(bytes, 0);
 
             bytes = new byte[iFileLen];
-            zipStream.Read(bytes, 0, bytes.Length);
+            Read(zipStream, bytes, bytes.Length);
 
             string sFilePath = Path.Combine(sDir, sFileName);
             string sFinalDir = Path.GetDirectoryName(sFilePath);
 
-            string sDirFull =
-                (string.IsNullOrEmpty(sDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(sDir))
+            string sDirFull = (string.IsNullOrEmpty(sDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(sDir))
                 .CleanUpPathCrossPlatform(false);
             string sFinalDirFull =
                 (string.IsNullOrEmpty(sFinalDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(sFinalDir))
@@ -152,8 +177,8 @@ namespace BaroLib
 
             if (!sFinalDirFull.StartsWith(sDirFull, StringComparison.OrdinalIgnoreCase))
             {
-                throw new
-                    InvalidOperationException($"Error extracting \"{sFileName}\": cannot be extracted to parent directory");
+                throw new InvalidOperationException(
+                                                    $"Error extracting \"{sFileName}\": cannot be extracted to parent directory");
             }
 
             if (!writeFile)
@@ -163,7 +188,7 @@ namespace BaroLib
 
             if (!Directory.Exists(sFinalDir))
             {
-                Directory.CreateDirectory(sFinalDir);
+                Directory.CreateDirectory(sFinalDir ?? throw new InvalidOperationException());
             }
 
             var maxRetries = 4;
@@ -190,9 +215,29 @@ namespace BaroLib
             return true;
         }
 
+        private static int Read(GZipStream zipStream, byte[] bytes, int amount)
+        {
+            var read = 0;
+
+            // FIXME workaround for .NET6 causing save decompression to fail
+#if NET6_0 && LINUX
+            for (int i = 0; i < amount; i++)
+            {
+                int result = zipStream.ReadByte();
+                if (result < 0) { break; }
+
+                bytes[i] = (byte) result;
+                read++;
+            }
+#else
+            read = zipStream.Read(bytes, 0, amount);
+#endif
+            return read;
+        }
+
         public static void DecompressToDirectory(string sCompressedFile, string sDir)
         {
-            var maxRetries = 4;
+            const int maxRetries = 4;
             for (var i = 0; i <= maxRetries; i++)
             {
                 try
@@ -202,8 +247,6 @@ namespace BaroLib
                     while (DecompressFile(true, sDir, zipStream, out _))
                     {
                     }
-
-                    ;
 
                     break;
                 }
@@ -227,9 +270,8 @@ namespace BaroLib
             {
                 try
                 {
-                    using FileStream inFile =
-                        File.Open(sCompressedFile, FileMode.Open, FileAccess.Read);
-                    using var zipStream = new GZipStream(inFile, CompressionMode.Decompress, true);
+                    using FileStream inFile    = File.Open(sCompressedFile, FileMode.Open, FileAccess.Read);
+                    using var        zipStream = new GZipStream(inFile, CompressionMode.Decompress, true);
                     while (DecompressFile(false, "", zipStream, out string fileName))
                     {
                         paths.Add(fileName);
@@ -247,6 +289,123 @@ namespace BaroLib
             }
 
             return paths;
+        }
+
+        public static void CopyFolder(string sourceDirName, string destDirName, bool copySubDirs,
+                                      bool   overwriteExisting = false)
+        {
+            // Get the subdirectories for the specified directory.
+            var dir = new DirectoryInfo(sourceDirName);
+
+            if (!dir.Exists)
+            {
+                throw new DirectoryNotFoundException(
+                                                     "Source directory does not exist or could not be found: "
+                                                     + sourceDirName);
+            }
+
+            IEnumerable<DirectoryInfo> dirs = dir.GetDirectories();
+            // If the destination directory doesn't exist, create it.
+            if (!Directory.Exists(destDirName))
+            {
+                Directory.CreateDirectory(destDirName);
+            }
+
+            // Get the files in the directory and copy them to the new location.
+            IEnumerable<FileInfo> files = dir.GetFiles();
+            foreach (FileInfo file in files)
+            {
+                string tempPath = Path.Combine(destDirName, file.Name);
+                if (!overwriteExisting && File.Exists(tempPath))
+                {
+                    continue;
+                }
+
+                file.CopyTo(tempPath, true);
+            }
+
+            // If copying subdirectories, copy them and their contents to new location.
+            if (!copySubDirs)
+            {
+                return;
+            }
+
+            {
+                foreach (DirectoryInfo subdir in dirs)
+                {
+                    string tempPath = Path.Combine(destDirName, subdir.Name);
+                    CopyFolder(subdir.FullName, tempPath, true, overwriteExisting);
+                }
+            }
+        }
+
+        public static void DeleteDownloadedSubs()
+        {
+            if (Directory.Exists(SubmarineDownloadFolder))
+            {
+                ClearFolder(SubmarineDownloadFolder);
+            }
+        }
+
+        public static void CleanUnnecessarySaveFiles()
+        {
+            if (Directory.Exists(CampaignDownloadFolder))
+            {
+                ClearFolder(CampaignDownloadFolder);
+                Directory.Delete(CampaignDownloadFolder);
+            }
+
+            if (Directory.Exists(TempPath))
+            {
+                ClearFolder(TempPath);
+                Directory.Delete(TempPath);
+            }
+        }
+
+        public static void ClearFolder(string folderName, string[] ignoredFileNames = null)
+        {
+            var dir = new DirectoryInfo(folderName);
+
+            foreach (FileInfo fi in dir.GetFiles())
+            {
+                if (ignoredFileNames != null)
+                {
+                    bool ignore = ignoredFileNames.Any(ignoredFile =>
+                                                           Path.GetFileName(fi.FullName)
+                                                               .Equals(Path.GetFileName(ignoredFile)));
+
+                    if (ignore)
+                    {
+                        continue;
+                    }
+                }
+
+                fi.IsReadOnly = false;
+                fi.Delete();
+            }
+
+            foreach (DirectoryInfo di in dir.GetDirectories())
+            {
+                ClearFolder(di.FullName, ignoredFileNames);
+                var maxRetries = 4;
+                for (var i = 0; i <= maxRetries; i++)
+                {
+                    try
+                    {
+                        di.Delete();
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        if (i >= maxRetries)
+                        {
+                            throw;
+                        }
+
+                        Thread.Sleep(250);
+                    }
+                }
+            }
         }
     }
 }
